@@ -1,0 +1,401 @@
+---
+title: "Transparency of COVID-19-related research in dental journals - Analysis"
+author: Ahmad Sofi-Mahmudi, Eero Raittio
+date: "2022-01-26"
+output: html_document
+---
+```{r, setup, include=FALSE}
+knitr::opts_knit$set(root.dir = 'C:/Users/ahmad/Google Drive/Meta-Research in Dentistry/Data Transparency Project/COVID-19 dental data/data/')
+```
+
+# Loading required packages
+
+```{r}
+pacman::p_load(tidyverse, 
+               europepmc)
+```
+
+# Loading the datasets
+First, set working directory to the folder that has all the datasets in it using setwd() function and then run the following code:
+```{r}
+opendata <- read.csv("covid_dental_transparent_opendata.csv")
+```
+
+Then, we will read the file that containts ISSNs:
+```{r}
+ISSNs <- read.csv("dental_journals_issns.csv")
+```
+
+Some modifications are needed to be done to the ISSNs dataframe:
+```{r}
+ISSNs <- ISSNs %>% mutate(search.term = paste0("ISSN:", Primary.ISSN))
+ISSNsQuery <- paste(ISSNs$search.term, 
+                    collapse = " OR ")
+```
+
+Now, we need COVID-19 keywords. Loading its csv file:
+```{r}
+COVID_19_keywords <- read.csv("covid_keywords.csv")
+```
+
+Some modifications is needed to reach the queries:
+```{r}
+COVID_19_keywords <- COVID_19_keywords %>% mutate(
+  search.term.title = paste0("TITLE:", '"', Keyword, '"'),
+  search.term.keyword = paste0("KW:", '"', Keyword, '"'),
+  search.term.results = paste0("RESULTS:", '"', Keyword, '"'))
+
+TitleQuery <- paste(COVID_19_keywords$search.term.title,
+                     collapse = " OR ")
+
+KeywordQuery <- paste(COVID_19_keywords$search.term.keyword,
+                     collapse = " OR ")
+
+ResultQuery <- paste(COVID_19_keywords$search.term.results,
+                     collapse = " OR ")
+```
+
+# Results
+Number of all papers (open access and non open access):
+```{r}
+hits_all <- epmc_hits(
+  query = paste0(
+    "'(",
+    ISSNsQuery,
+    ") AND",
+    " (",
+    TitleQuery, " OR ", KeywordQuery, " OR ", ResultQuery,
+    ") ",
+    'AND (SRC:"MED") 
+    AND (LANG:"eng" OR LANG:"en" OR LANG:"us") 
+    AND (FIRST_PDATE:[2020-01-01 TO 2021-12-31])
+    AND (PUB_TYPE:"Journal Article" OR PUB_TYPE:"research-article" OR PUB_TYPE:"rapid-communication" OR PUB_TYPE:"product-review")',
+    "'"
+  ))
+
+hits_all
+```
+
+Number of open access papers:
+```{r}
+hits_oa <- epmc_hits(
+  query = paste0(
+    "'(",
+    ISSNsQuery,
+    ") AND",
+    " (",
+    TitleQuery, " OR ", KeywordQuery, " OR ", ResultQuery,
+    ") ",
+    'AND (SRC:"MED") 
+    AND (LANG:"eng" OR LANG:"en" OR LANG:"us") 
+    AND (FIRST_PDATE:[2020-01-01 TO 2021-12-31])
+    AND ((IN_EPMC:y) OR (OPEN_ACCESS:y))
+    AND (PUB_TYPE:"Journal Article" OR PUB_TYPE:"research-article" OR PUB_TYPE:"rapid-communication" OR PUB_TYPE:"product-review")',
+    "'"
+  ))
+
+hits_oa
+```
+
+Open access percentage:
+```{r}
+round((hits_oa/hits_all)*100, 2)
+```
+
+Number of open acess papers per year:
+```{r}
+table(opendata$year_epub)
+```
+
+The number of journals in our dataset:
+```{r}
+length(table(opendata$journal))
+```
+Journals with the highest number of articles in our dataset, from high to low:
+```{r}
+table(opendata$journal) %>% as.data.frame() %>% arrange(desc(Freq))
+```
+The mean and the median of the number of citations to these references:
+```{r}
+data.frame(Mean = round(mean(opendata$citedByCount),1),
+           SD = round(sd(opendata$citedByCount), 2),
+           Median = median(opendata$citedByCount),
+           IQR = IQR(opendata$citedByCount)
+           )
+
+```
+Characteristics of the paper with the highest number of citations:
+```{r}
+opendata[which.max(opendata$citedByCount),] %>% 
+  select(pmid, pmcid, doi.x, title, authorString, journalTitle, pubYear)
+```
+
+The number and percentage of papers with a conflict of interest (CoI) disclosure:
+```{r}
+data.frame(
+  number = length(opendata$is_coi_pred[opendata$is_coi_pred == TRUE]),
+           percentage = round(length(opendata$is_coi_pred[opendata$is_coi_pred == TRUE])/nrow(opendata)*100, 2)
+           )
+```
+
+Confidence interval for CoI:
+```{r}
+library(epiR)
+
+round(epi.prev(pos = length(opendata$is_coi_pred[opendata$is_coi_pred == TRUE]),
+         tested = nrow(opendata),
+         se = 0.992,
+         sp = 0.995)$ap, 
+      2)
+```
+
+Comparing CoI disclosure rate in two years:
+```{r}
+round(prop.table(table(opendata$is_coi_pred, opendata$year_epub), 2)*100, 1)
+```
+
+Chi-square test:
+```{r}
+chisq.test(opendata$is_coi_pred, opendata$year_epub)
+```
+
+The number and percentage of papers with a funding statement:
+```{r}
+data.frame(number = length(opendata$is_fund_pred[opendata$is_fund_pred == TRUE]),
+           percentage = round(length(opendata$is_fund_pred[opendata$is_fund_pred == TRUE])/nrow(opendata)*100, 2)
+           )
+```
+
+Confidence interval for funding statement:
+```{r}
+
+round(epi.prev(pos = length(opendata$is_fund_pred[opendata$is_fund_pred == TRUE]),
+         tested = nrow(opendata),
+         se = 0.997,
+         sp = 0.981)$ap, 
+      2)
+```
+
+Comparing funding statement rate in two years:
+```{r}
+round(prop.table(table(opendata$is_fund_pred, opendata$year_epub), 2)*100, 1)
+```
+
+Chi-square test:
+```{r}
+chisq.test(opendata$is_fund_pred, opendata$year_epub)
+```
+
+The number and percentage of papers that were registered beforehand:
+```{r}
+data.frame(number = length(opendata$is_register_pred[opendata$is_register_pred == TRUE]),
+           percentage = round(length(opendata$is_register_pred[opendata$is_register_pred == TRUE])/nrow(opendata)*100, 2)
+           )
+```
+
+Confidence interval for registration:
+```{r}
+
+round(epi.prev(pos = length(opendata$is_register_pred[opendata$is_register_pred == TRUE]),
+         tested = nrow(opendata),
+         se = 0.955,
+         sp = 0.997)$ap, 
+      2)
+```
+
+Comparing registration rate in two years:
+```{r}
+round(prop.table(table(opendata$is_register_pred, opendata$year_epub), 2)*100, 1)
+```
+
+Chi-square test:
+```{r}
+chisq.test(opendata$is_register_pred, opendata$year_epub)
+```
+
+The number and percentage of papers that shared data (preliminary):
+```{r}
+data.frame(number = length(opendata$is_open_data[opendata$is_open_data == TRUE]),
+           percentage = round(length(opendata$is_open_data[opendata$is_open_data == TRUE])/nrow(opendata)*100, 2)
+           )
+```
+
+Comparing data sharing rate in two years (preliminary):
+```{r}
+round(prop.table(table(opendata$is_open_data, opendata$year_epub), 2)*100, 1)
+```
+
+The number and percentage of papers that shared code (preliminary):
+```{r}
+data.frame(number = length(opendata$is_open_code[opendata$is_open_code == TRUE]),
+           percentage = round(length(opendata$is_open_code[opendata$is_open_code == TRUE])/nrow(opendata)*100, 2)
+           )
+```
+
+Comparing code sharing rate in two years (preliminary):
+```{r}
+round(prop.table(table(opendata$is_open_code, opendata$year_epub), 2)*100, 1)
+```
+
+Adding journal Impact Factors to the dataset:
+```{r}
+opendata <- merge(x = opendata, 
+                  y = ISSNs[, c("Abbreviation", "X2020.JIF")],
+                  by.x = "journalTitle",
+                  by.y = "Abbreviation",
+                  all.x = TRUE)
+```
+
+Total number of papers published in journals with no JIF:
+```{r}
+sum(is.na(opendata$X2020.JIF))
+```
+
+```{r}
+opendata %>% 
+  group_by(is_coi_pred) %>% 
+  summarise(Mean = round(mean(X2020.JIF, na.rm = T),3),
+            SD = round(sd(X2020.JIF, na.rm = T),4),
+            Median = median(X2020.JIF, na.rm = T),
+            IQR = IQR(X2020.JIF, na.rm = T))
+```
+
+Test for normality:
+```{r}
+with(opendata, shapiro.test(X2020.JIF[is_coi_pred == TRUE]))
+with(opendata, shapiro.test(X2020.JIF[is_coi_pred == FALSE]))
+```
+
+Data is not normal, hence we will use unpaired two-samples Wilcoxon test.
+```{r}
+wilcox.test(X2020.JIF~is_coi_pred, data = opendata, exact = FALSE)
+```
+
+```{r}
+opendata %>% 
+  group_by(is_fund_pred) %>% 
+  summarise(Mean = round(mean(X2020.JIF, na.rm = T), 3),
+            SD = round(sd(X2020.JIF, na.rm = T), 4),
+            Median = median(X2020.JIF, na.rm = T),
+            IQR = IQR(X2020.JIF, na.rm = T))
+```
+
+Test for normality:
+```{r}
+with(opendata, shapiro.test(X2020.JIF[is_fund_pred == TRUE]))
+with(opendata, shapiro.test(X2020.JIF[is_fund_pred == FALSE]))
+```
+
+Data is not normal, hence we will use unpaired two-samples Wilcoxon test.
+```{r}
+wilcox.test(X2020.JIF~is_fund_pred, data = opendata, exact = FALSE)
+```
+
+```{r}
+opendata %>% 
+  group_by(is_register_pred) %>% 
+  summarise(Mean = round(mean(X2020.JIF, na.rm = T), 3),
+            SD = round(sd(X2020.JIF, na.rm = T), 4),
+            Median = median(X2020.JIF, na.rm = T),
+            IQR = IQR(X2020.JIF, na.rm = T))
+```
+
+Test for normality:
+```{r}
+with(opendata, shapiro.test(X2020.JIF[is_register_pred == TRUE]))
+with(opendata, shapiro.test(X2020.JIF[is_register_pred == FALSE]))
+```
+
+Data is not normal, hence we will use unpaired two-samples Wilcoxon test.
+```{r}
+wilcox.test(X2020.JIF~is_register_pred, data = opendata, exact = FALSE)
+```
+
+
+## Monthly trend
+Adding month column to dataset:
+```{r}
+library(lubridate)
+
+opendata <- opendata %>% 
+  mutate(month = month(
+    as.POSIXlt(firstPublicationDate, 
+               format = "%m/%d/%Y")),
+    year = year(
+      as.POSIXlt(firstPublicationDate, 
+               format = "%m/%d/%Y")
+    ))
+```
+
+Now, drawing monthly trend for each year:
+```{r}
+summarybyMonth <- opendata %>%
+  group_by(month, year) %>%
+  summarise(counts = n(),
+            coi_true = sum(is_coi_pred == TRUE),
+            fund_true = sum(is_fund_pred == TRUE),
+            reg_true = sum(is_register_pred == TRUE))
+
+summarybyMonth %>%
+  ggplot(aes(x = month, y = counts)) + 
+  geom_col(position = position_dodge()) +
+  facet_grid(year ~ .) +
+  geom_bar(stat = "identity") +
+  scale_x_discrete(name="Month", limits = 1:12, labels = 1:12)
+
+
+coi_summarybyMonth <- opendata %>%
+  group_by(month, year, is_coi_pred) %>%
+  summarise(counts = n())
+
+coi_plot <- coi_summarybyMonth %>%
+  ggplot(aes(x = month, y = counts, fill = is_coi_pred)) + 
+  geom_col(position = position_dodge()) +
+  facet_grid(. ~ year) +
+  geom_bar(stat = "identity") +
+  scale_x_discrete(name="Month", limits = 1:12, labels = 1:12) +
+  theme_minimal() +
+  theme(legend.title = element_blank()) +
+  labs(title = "Conflict of Interest disclosure")
+
+fund_summarybyMonth <- opendata %>%
+  group_by(month, year, is_fund_pred) %>%
+  summarise(counts = n())
+
+fund_plot <- fund_summarybyMonth %>%
+  ggplot(aes(x = month, y = counts, fill = is_fund_pred)) + 
+  geom_col(position = position_dodge()) +
+  facet_grid(. ~ year) +
+  geom_bar(stat = "identity") +
+  scale_x_discrete(name="Month", limits = 1:12, labels = 1:12) +
+  theme_minimal() +
+  theme(legend.title = element_blank()) +
+  labs(title = "Funding statement")
+
+reg_summarybyMonth <- opendata %>%
+  group_by(month, year, is_register_pred) %>%
+  summarise(counts = n())
+
+reg_plot <- reg_summarybyMonth %>%
+  ggplot(aes(x = month, y = counts, fill = is_register_pred)) + 
+  geom_col(position = position_dodge()) +
+  facet_grid(. ~ year) +
+  geom_bar(stat = "identity") +
+  scale_x_discrete(name="Month", limits = 1:12, labels = 1:12) +
+  theme_minimal() +
+  theme(legend.title = element_blank()) +
+  labs(title = "Registration statement")
+
+library(ggpubr)
+figure <- ggarrange(coi_plot + rremove("xlab") + theme(axis.text.x=element_blank()), 
+                    fund_plot + rremove("xlab") + theme(axis.text.x=element_blank(), strip.text.x = element_blank()),
+                    reg_plot + theme(strip.text.x = element_blank()),
+                    ncol = 1, nrow = 3, vjust = 1, 
+                    align = "hv", common.legend = T, legend = "right")
+
+# tiff("Figure.tiff", width = 6, height = 7, units = "in", res = 300)
+figure
+#dev.off()
+```
+
+

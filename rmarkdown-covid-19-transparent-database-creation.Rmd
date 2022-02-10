@@ -1,0 +1,137 @@
+---
+title: "Transparency of COVID-19-related research in dental journals - Database creation"
+author: Ahmad Sofi-Mahmudi, Eero Raittio
+date: "2022-01-26"
+output: html_document
+---
+
+# Loading required packages
+
+```{r}
+pacman::p_load(tidyverse,
+               rtransparent, 
+               metareadr, 
+               europepmc)
+```
+
+
+# Load the datasets
+
+## Load International Standard Serial Numbers (ISSNs)
+
+```{r}
+ISSNs <- read.csv("https://docs.google.com/spreadsheets/d/e/2PACX-1vTcoDSEDhtzrYe8u8hkLC9OQ9fZHaQn8cBNZt_7k-qnqtDFP0OCxXPj9aM38D0umO2stdox41C1eZAi/pub?gid=0&single=true&output=csv")
+```
+
+## Some modifications are needed...
+```{r}
+ISSNs <- ISSNs %>% mutate(search.term = paste0("ISSN:", Primary.ISSN))
+ISSNsQuery <- paste(ISSNs$search.term, 
+                    collapse = " OR ")
+```
+
+## Load all open access dentistry and oral health papers indexed in PubMed to the end of 2021:
+
+```{r}
+COVID_19_keywords <- read.csv("https://docs.google.com/spreadsheets/d/e/2PACX-1vS6ibaTIJ0-4MiOZrLHKwo-Ya3MjlGX4f-dPQwdmWwQZhRGi6C83K1I_WceUJPH9zGyBc4L-lSalET_/pub?output=csv")
+```
+
+```{r}
+COVID_19_keywords <- COVID_19_keywords %>% mutate(
+  search.term.title = paste0("TITLE:", '"', Keyword, '"'),
+  search.term.keyword = paste0("KW:", '"', Keyword, '"'),
+  search.term.results = paste0("RESULTS:", '"', Keyword, '"'))
+
+TitleQuery <- paste(COVID_19_keywords$search.term.title,
+                     collapse = " OR ")
+
+KeywordQuery <- paste(COVID_19_keywords$search.term.keyword,
+                     collapse = " OR ")
+
+ResultQuery <- paste(COVID_19_keywords$search.term.results,
+                     collapse = " OR ")
+```
+
+
+```{r}
+db <- epmc_search(
+  query = paste0(
+    "'(",
+    ISSNsQuery,
+    ") AND",
+    " (",
+    TitleQuery, " OR ", KeywordQuery, " OR ", ResultQuery,
+    ") ",
+    'AND (SRC:"MED") 
+    AND (LANG:"eng" OR LANG:"en" OR LANG:"us") 
+    AND (FIRST_PDATE:[2020-01-01 TO 2021-12-31])
+    AND ((IN_EPMC:y) OR (OPEN_ACCESS:y))
+    AND (PUB_TYPE:"Journal Article" OR PUB_TYPE:"research-article" OR PUB_TYPE:"rapid-communication" OR PUB_TYPE:"product-review")',
+    "'"
+  ),
+  limit = 100000
+)
+```
+
+
+Let's see the first six rows of the database:
+```{r}
+head(db)
+```
+
+Removing "PMC" from the cells
+```{r}
+db$pmcid_ <- gsub("PMC", "", as.character(db$pmcid))
+```
+
+Now, we make a folder for xml format articles and switch to that folder:
+```{r}
+dir.create("pmc")
+
+setwd("pmc")
+```
+
+Next, we download xmls in format accessible with rtransparent:
+```{r}
+db <- subset(db, !(pmcid_ %in% c(8028467, 8013335, 8033587, 7780260, 8463922, 7342805, 7530803))) #removed due to the error "The metadata format 'pmc' is not supported by the item or by the repository."
+
+sapply(db$pmcid_, mt_read_pmcoa)
+```
+Error in 8013644 - The metadata format 'pmc' is not supported by the item or by the repository.
+
+Error in 7572235 - The value of the identifier argument is unknown or illegal in this repository.
+
+Now we run rtransparent:
+```{r}
+filepath = dir(pattern=glob2rx("PMC*.xml"))
+
+results_table_all <- sapply(filepath, rt_all_pmc)
+
+results_table_data <- rt_data_code_pmc_list(
+  filepath,
+  remove_ns=F,
+  specificity = "low")
+```
+
+A list is created now. We should convert this list to a dataframe:
+```{r}
+df <- data.table::rbindlist(results_table_all, fill = TRUE)
+```
+
+
+Merge data sharing results to database file:
+
+```{r}
+setwd('..')
+opendata <- merge(db, results_table_data, by = "pmid") %>% merge(df)
+View(opendata)
+```
+
+
+Random sample of search results for validation of our approach (100 refs):
+```{r}
+set.seed(100)
+
+randomsample <- db[sample(nrow(db), 100), ]
+```
+
